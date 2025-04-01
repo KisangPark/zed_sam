@@ -21,18 +21,21 @@ import matplotlib.pyplot as plot
 import time
 
 
+""" 1. define camera & model / parser """
+parser = argparse.ArgumentParser()
+parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
+parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+args = parser.parse_args()
+
+sam_model = Predictor(
+    args.image_encoder,
+    args.mask_decoder
+)
+
+
+
+
 def main():
-
-    """ 1. define camera & model / parser """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
-    parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
-    args = parser.parse_args()
-
-    sam_model = Predictor(
-        args.image_encoder,
-        args.mask_decoder
-    ) # in sam example code, it uses parser arguments but this is also possible -> not available..
     zed_cam = sl.Camera()
 
     # Set configuration & runtime parameters, open camera
@@ -46,6 +49,7 @@ def main():
     init.camera_resolution = sl.RESOLUTION.HD1080
     init.depth_mode = sl.DEPTH_MODE.NEURAL# Mode: performance, neural, etc
     init.coordinate_units = sl.UNIT.MILLIMETER
+
     # Open the camera
     err = zed_cam.open(init)
     if err != sl.ERROR_CODE.SUCCESS :
@@ -109,9 +113,9 @@ def main():
             plot.show(block=False)
             plot.pause(0.01)
             #time.sleep(0.1)
-            
+           
 
-    zed.close()
+    zed_cam.close()
 
 
 if __name__ == "__main__":
