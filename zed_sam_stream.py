@@ -102,17 +102,25 @@ def main():
 
             mask_refined = (mask[0, 0] > 0).detach().cpu().numpy()
 
-            #plot with matplotlib
-            plot.imshow(left_rgb)
-            plot.imshow(mask_refined, alpha=0.5)
-            #bounding box
-            x=[box[0], box[2], box[2], box[0], box[0]]
-            y=[box[1], box[1], box[3], box[3], box[1]]
-            plot.plot(x, y, 'g-')
-            #finish, time sleep?
-            plot.show(block=False)
-            plot.pause(0.01)
-            #time.sleep(0.1)
+            #image show with opencv
+            # if mask, generate image added
+            # if no mask, just view raw image
+            
+
+            cv2.imshow('test', left_image)
+            cv2.waitKey(10)
+
+            # #plot with matplotlib
+            # plot.imshow(left_rgb)
+            # plot.imshow(mask_refined, alpha=0.5)
+            # #bounding box
+            # x=[box[0], box[2], box[2], box[0], box[0]]
+            # y=[box[1], box[1], box[3], box[3], box[1]]
+            # plot.plot(x, y, 'g-')
+
+            # plot.show(block=False)
+            # plot.pause(0.01)
+
            
 
     zed_cam.close()
