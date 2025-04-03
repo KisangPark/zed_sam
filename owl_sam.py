@@ -43,10 +43,10 @@ def main():
         point_labels = np.array([2, 3])
         return points, point_labels
     
-    def draw_bbox(bbox):
-        x = [bbox[0], bbox[2], bbox[2], bbox[0], bbox[0]]
-        y = [bbox[1], bbox[1], bbox[3], bbox[3], bbox[1]]
-        plot.plot(x, y, 'g-')
+    # def draw_bbox(bbox):
+    #     x = [bbox[0], bbox[2], bbox[2], bbox[0], bbox[0]]
+    #     y = [bbox[1], bbox[1], bbox[3], bbox[3], bbox[1]]
+    #     plot.plot(x, y, 'g-')
 
 
 
@@ -118,9 +118,8 @@ def main():
                 break #if N>1, multiple cans
 
             elif N == 0:
-                plot.imshow(left_rgb)
-                plot.show(block=False)
-                plot.pause(0.01)
+                cv2.imshow('test', left_rgb)
+                cv2.waitKey(10)
             
             else:
                 bbox = detections[0]['bbox']
@@ -131,15 +130,29 @@ def main():
                 mask, _, _ = sam_model.predict(points, point_labels)
 
                 # d. visualize -> usually with matplotlib
-                mask_refined = (mask[0, 0] > 0).detach().cpu().numpy()
+                mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
 
-                #plot with matplotlib
-                plot.imshow(left_rgb)
-                plot.imshow(mask_refined, alpha=0.5)
-                #bounding box
-                draw_bbox(bbox)
-                plot.show(block=False)
-                plot.pause(0.01)
+                #now, make cv image
+                plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
+                mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
+
+                color_mask = np.zeros_like(cv_image)
+                color_mask[mask_color > 0] = (0, 255, 255)  # Yellow color
+
+                blended = cv2.addWeighted(cv_image, 0.7, color_mask, 0.3, 0)
+                cv2.rectangle(blended, points[0], points[0]points[1], (0, 0, 255), 2)
+
+                cv2.imshow('result', blended)
+                cv2.waitKey(10)
+
+
+                # #plot with matplotlib
+                # plot.imshow(left_rgb)
+                # plot.imshow(mask_refined, alpha=0.5)
+                # #bounding box
+                # draw_bbox(bbox)
+                # plot.show(block=False)
+                # plot.pause(0.01)
             
 
     zed_cam.close()
