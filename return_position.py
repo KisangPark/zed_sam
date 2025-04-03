@@ -81,7 +81,7 @@ def main():
         input_type.set_from_svo_file(sys.argv[1])
     init = sl.InitParameters(input_t=input_type)
     init.camera_resolution = sl.RESOLUTION.HD1080
-    init.depth_mode = sl.DEPTH_MODE.NEURAL# Mode: performance, neural, etc
+    init.depth_mode = sl.DEPTH_MODE.NEURAL  # Mode: performance, neural, etc
     init.coordinate_units = sl.UNIT.MILLIMETER
     # Open the camera
     err = zed_cam.open(init)
@@ -116,7 +116,9 @@ def main():
             left_image = left_image_mat.get_data()
             left_rgb = PIL.Image.fromarray(left_image).convert("RGB") #use PIL to feed model
             depth_image = depth_image_mat.get_data()
-            print("depth image:", depth_image)
+            #print("depth image:", depth_image)
+            #print("left image:", left_image)
+
 
             # sam model set image
             sam_model.set_image(left_rgb)
@@ -133,7 +135,8 @@ def main():
             N = len(output.labels)
             if N>1:
                 print("Multiple cans detected, exiting...")
-                break #if N>1, multiple cans
+                #break #if N>1, multiple cans
+                pass
 
             elif N == 0:
                 print("no can detected")
@@ -151,7 +154,7 @@ def main():
 
                 # d. visualize -> usually with matplotlib
                 mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
-                print("mask form:", mask_refined)
+                #print("mask form:", mask_refined)
 
                 #now, make cv image
                 plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
@@ -165,6 +168,17 @@ def main():
 
                 cv2.imshow('result', blended)
                 cv2.waitKey(10)
+
+
+                # e. masking depth image
+                dimg = cv2.cvtColor(depth_image, cv2.COLOR_RGB2BGR)
+                mask_depth = np.zeros_like(dimg)
+                mask_depth[mask_color > 0] = (1, 1, 1)
+                cut_depth = cv2.multiply(dimg, mask_depth)
+
+                cv2.imshow('depth cat', cut_depth)
+                cv2.waitKey(10)
+
 
     zed_cam.close()
 
