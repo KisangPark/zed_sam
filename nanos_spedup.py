@@ -18,7 +18,9 @@ import PIL.Image
 import pyzed.sl as sl
 import cv2
 
-from nanosam.utils.owlvit import OwlVit
+from nanoowl.owl_predictor import (
+    OwlPredictor
+)
 from nanosam.utils.predictor import Predictor
 
 
@@ -31,9 +33,20 @@ def main():
     parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
     parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
     #owl arguments
-    parser.add_argument("--prompt", nargs='+', type=str, default="can")
-    parser.add_argument("--thresh", type=float, default=0.1)
+    parser.add_argument("--threshold", type=str, default="0.1,0.1")
+    parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
+    parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
     args = parser.parse_args()
+    # prompt
+    list_prompt = ['a can']
+    #threshold parse
+    thresholds = args.threshold.strip("][()")
+    thresholds = thresholds.split(',')
+    if len(thresholds) == 1:
+        thresholds = float(thresholds[0])
+    else:
+        thresholds = [float(x) for x in thresholds]
+    # print(thresholds), list of values returned
 
     #simple bounding box transform & drawing function
     def bbox2points(bbox):
@@ -44,16 +57,13 @@ def main():
         point_labels = np.array([2, 3])
         return points, point_labels
     
-    # def draw_bbox(bbox):
-    #     x = [bbox[0], bbox[2], bbox[2], bbox[0], bbox[0]]
-    #     y = [bbox[1], bbox[1], bbox[3], bbox[3], bbox[1]]
-    #     plot.plot(x, y, 'g-')
-
-
-
 
     """2. define models: OWL ViT, SAM"""
-    detector = OwlVit(args.thresh)
+    detector = OwlPredictor(
+        args.model,
+        image_encoder_engine=args.image_encoder_engine
+    )
+    text_encodings = detector.encode_text(list_prompt)
 
     sam_model = Predictor(
         args.image_encoder,
@@ -112,19 +122,27 @@ def main():
             sam_model.set_image(left_rgb)
 
             # c. owl vit forwarding, get bounding box
-            detections = detector.predict(left_rgb, texts=args.prompt)
-            N = len(detections)
+            output = detector.predict(
+                image=left_rgb, 
+                text=list_prompt, 
+                text_encodings=text_encodings,
+                threshold=thresholds,
+                pad_square=False
+            )
+            
+            N = len(output.labels)
             if N>1:
                 print("Multiple cans detected, exiting...")
                 break #if N>1, multiple cans
 
             elif N == 0:
-                # cv2.imshow('test', left_image)
-                # cv2.waitKey(10)
+                print("no can detected")
                 pass
             
             else:
-                bbox = detections[0]['bbox']
+                owl_box = output.boxes[0]
+                bbox = np.array([int(x) for x in owl_box])
+
                 points, point_labels = bbox2points(bbox)
 
                 # d. sam forwarding: predict and return mask
@@ -146,16 +164,6 @@ def main():
 
                 cv2.imshow('result', blended)
                 cv2.waitKey(10)
-
-
-                # #plot with matplotlib
-                # plot.imshow(left_rgb)
-                # plot.imshow(mask_refined, alpha=0.5)
-                # #bounding box
-                # draw_bbox(bbox)
-                # plot.show(block=False)
-                # plot.pause(0.01)
-            
 
     zed_cam.close()
 

@@ -105,9 +105,17 @@ def main():
             #image show with opencv
             # if mask, generate image added
             # if no mask, just view raw image
-            
 
-            cv2.imshow('test', left_image)
+            plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
+            mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
+
+            color_mask = np.zeros_like(plain_image)
+            color_mask[mask_color > 0] = (0, 255, 255)  # Yellow color
+
+            blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
+            cv2.rectangle(blended, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 0, 255), 2)
+
+            cv2.imshow('result', blended)
             cv2.waitKey(10)
 
             # #plot with matplotlib
