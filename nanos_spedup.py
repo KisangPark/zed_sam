@@ -162,8 +162,14 @@ def main():
                 blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
                 cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
 
-                cv2.imshow('result', blended)
+                # transpose depth_image
+                depth_transposed = np.transpose(depth_image, (2, 0, 1))
+                print("dimensions transposed:", depth_transposed.shape)
+
+                cv2.imshow('result', blended) #blended
+                #transposed matrix not supported in cv2
                 cv2.waitKey(10)
+
 
     zed_cam.close()
 

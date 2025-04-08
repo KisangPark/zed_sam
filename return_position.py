@@ -22,6 +22,56 @@ from nanoowl.owl_predictor import (
 )
 from nanosam.utils.predictor import Predictor
 
+# function
+# receive mask & depth image
+# return list of position
+
+# 1st. return center of mass function
+def ret_com(mask):
+    # boolean to int
+    mask = mask.astype("uint8")
+    # if np.any(mask):
+    #     print("mask exists")
+
+    #mesh matrix: represents the coordinate of each pixel
+    mesh_y, mesh_x = np.mgrid[0:mask.shape[0]:1, 0:mask.shape[1]:1]
+
+    # print("mask:", mask)
+    # print("mesh:", mesh_x)
+    # mask or mesh not correctly generated..!
+    # print("masked mesh:", np.sum(cv2.bitwise_and(mesh_x, mesh_x, mask=mask)))
+    # print("nonzero pixels:", np.count_nonzero(mask))
+
+    if np.count_nonzero(mask):
+        centroid_x = int(float(np.sum(cv2.bitwise_and(mesh_x, mesh_x, mask=mask))/np.count_nonzero(mask)))
+        print("x coordinate:", centroid_x)
+        centroid_y = int(float(np.sum(cv2.bitwise_and(mesh_y, mesh_y, mask=mask)))/np.count_nonzero(mask))
+        print("y coordinate:", centroid_y)
+        #by using bitwise AND, only true-masked pixels alive -> sum them all!
+    else:
+        centroid_x = mask.shape[1] /2
+        centroid_y = mask.shape[0] /2
+        # if no mask, center of picture is COM
+
+    return centroid_x, centroid_y
+
+
+def ret_depth(mask,depth):
+    mask = mask.astype("uint8")
+
+    #transpose image to get one pixel layer (x&y wise)
+    depth_transposed = np.transpose(depth, (2, 0, 1))
+    values = depth_transposed[0][0]
+
+    if np.count_nonzero(mask):
+        z_pos = int(float(np.sum(cv2.bitwise_and(values, values, mask=mask)))/np.count_nonzero(mask))
+        
+    else:
+        z_pos = 0
+
+    return z_pos
+
+
 
 def main():
 
@@ -81,7 +131,7 @@ def main():
         input_type.set_from_svo_file(sys.argv[1])
     init = sl.InitParameters(input_t=input_type)
     init.camera_resolution = sl.RESOLUTION.HD1080
-    init.depth_mode = sl.DEPTH_MODE.NEURAL  # Mode: performance, neural, etc
+    init.depth_mode = sl.DEPTH_MODE.NEURAL# Mode: performance, neural, etc
     init.coordinate_units = sl.UNIT.MILLIMETER
     # Open the camera
     err = zed_cam.open(init)
@@ -116,9 +166,6 @@ def main():
             left_image = left_image_mat.get_data()
             left_rgb = PIL.Image.fromarray(left_image).convert("RGB") #use PIL to feed model
             depth_image = depth_image_mat.get_data()
-            #print("depth image:", depth_image)
-            #print("left image:", left_image)
-
 
             # sam model set image
             sam_model.set_image(left_rgb)
@@ -135,8 +182,7 @@ def main():
             N = len(output.labels)
             if N>1:
                 print("Multiple cans detected, exiting...")
-                #break #if N>1, multiple cans
-                pass
+                break #if N>1, multiple cans
 
             elif N == 0:
                 print("no can detected")
@@ -154,7 +200,6 @@ def main():
 
                 # d. visualize -> usually with matplotlib
                 mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
-                #print("mask form:", mask_refined)
 
                 #now, make cv image
                 plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
@@ -166,17 +211,18 @@ def main():
                 blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
                 cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
 
-                cv2.imshow('result', blended)
-                cv2.waitKey(10)
+                # print("mask shape:", mask_refined.shape)
+                # print("depth shape:", depth_image.shape) # same shape!
 
+                # get positions
+                x_pos, y_pos = ret_com(mask_refined)
+                z_pos = ret_depth(mask_refined, depth_image)
 
-                # e. masking depth image
-                dimg = cv2.cvtColor(depth_image, cv2.COLOR_RGB2BGR)
-                mask_depth = np.zeros_like(dimg)
-                mask_depth[mask_color > 0] = (1, 1, 1)
-                cut_depth = cv2.multiply(dimg, mask_depth)
+                position_array = (x_pos, y_pos, z_pos)
+                print("position array:", position_array)
 
-                cv2.imshow('depth cat', cut_depth)
+                cv2.imshow('result', blended) #blended
+                #transposed matrix not supported in cv2
                 cv2.waitKey(10)
 
 
