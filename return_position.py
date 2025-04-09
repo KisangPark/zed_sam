@@ -61,10 +61,11 @@ def ret_depth(mask,depth):
 
     #transpose image to get one pixel layer (x&y wise)
     depth_transposed = np.transpose(depth, (2, 0, 1))
-    values = depth_transposed[0][0]
+    values = depth_transposed[0]
 
     if np.count_nonzero(mask):
         z_pos = int(float(np.sum(cv2.bitwise_and(values, values, mask=mask)))/np.count_nonzero(mask))
+        print("z position:", z_pos)
         
     else:
         z_pos = 0
@@ -151,6 +152,9 @@ def main():
     left_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
     depth_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
 
+    # declare depth map matrix
+    depth_map = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+
 
 
     """4. Get image, model forwarding (repeat) """
@@ -161,6 +165,9 @@ def main():
             # a. retrieve left and depth image!
             zed_cam.retrieve_image(left_image_mat, sl.VIEW.LEFT, sl.MEM.CPU, image_size)
             zed_cam.retrieve_image(depth_image_mat, sl.VIEW.DEPTH, sl.MEM.CPU, image_size)
+
+            # a-1. retrieve depth information
+            zed_cam.retrieve_measure(depth_map, sl.MEASURE.DEPTH, sl.MEM.CPU, image_size)
 
             # b. get image matrix from retrieved data
             left_image = left_image_mat.get_data()
