@@ -31,6 +31,7 @@ class OBJECT_LOCATOR():
 
     def __init__(self, args): #get arguments for models, get text prompt
         
+        """arguments parsing & storing"""
         # threshold parse
         self.thresholds = args.threshold.strip("][()")
         self.thresholds = self.thresholds.split(',')
@@ -39,7 +40,11 @@ class OBJECT_LOCATOR():
         else:
             self.thresholds = [float(x) for x in self.thresholds]
         
-        """2. define models: OWL ViT, SAM"""
+        # prompt parsing: text to list of texts
+        self.prompt = args.prompt.strip("][()")
+        self.prompt = self.prompt.split(',') # done
+        
+        """define models: OWL ViT, SAM"""
         self.detector = OwlPredictor(
             args.model,
             image_encoder_engine=args.image_encoder_engine
@@ -51,14 +56,12 @@ class OBJECT_LOCATOR():
         ) # in sam example code, it uses parser arguments but this is also possible -> not available..
 
 
-    def get_mask(self, text_prompt, image): # use owl & sam to get object mask
-        # text prompt encoding
-        try:
-            list_prompt = [text_prompt]
-        except:
-            list_prompt = ['a can']
+    def get_mask(self, image):
         
-        text_encodings = self.detector.encode_text(list_prompt)
+        # text prompt encoding
+        text_encodings = self.detector.encode_text(self.prompt)
+        
+        # set sam image & owl vit detection
         self.sam_model.set_image(image)
 
         output = self.detector.predict(
@@ -69,29 +72,26 @@ class OBJECT_LOCATOR():
                 pad_square=False
             )
 
+        """detect single can"""
         N = len(output.labels)
         if N>1:
-            print("Multiple cans detected, pausing...")
-            pass #if N>1, multiple cans
+            print("Multiple cans detected, passing...")
+            return None, image
 
         elif N == 0:
-            print("no can detected")
-            pass
+            print("no can detected, passing")
+            return None, image
         
+        """draw bounding box, segmentation, return mask"""
         else:    
             owl_box = output.boxes[0]
             bbox = np.array([int(x) for x in owl_box])
 
             points, point_labels = bbox2points(bbox)
-
-            # d. sam forwarding: predict and return mask
-            # here, should load bounding box points and labels 
             mask, _, _ = self.sam_model.predict(points, point_labels)
-
-            # d. mask to numpy array
             mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
 
-            #now, make cv image
+            # make blended image
             plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
             mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
 
@@ -101,9 +101,7 @@ class OBJECT_LOCATOR():
             blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
             cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
 
-            # here: blended: image, mask_refined: boolean mask
-
-        return mask, blended
+            return mask, blended
 
 
     def return_2d_center(self, mask):
@@ -125,11 +123,120 @@ class OBJECT_LOCATOR():
             centroid_y = mask.shape[0] /2
             # if no mask, center of picture is COM
 
-        return centroid_x, centroid_y
+        return np.array([centroid_x, centroid_y]) #return as numpy array
 
 
     def return_3d_center(self, pixel_center, depth):
         # get 2d center, matrix to make 3d center value
+        pixel_center.append(depth)
 
-        matrix = np.open(matrix.npy)
-        np.linalg
+        mtx = np.load("data/intrinsic_matrix.npy")
+        inv_mtx = np.linalg.inv(mtx) #inverse matrix
+
+        return np.matmul(inv_mtx, pixel_center)
+
+
+
+
+"""
+main function
+"""
+
+def main():
+    """initialize parser, camera object"""
+
+    # 1. parser declaration
+    parser = argparse.ArgumentParser()
+    # 1-1. sam arguments
+    parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
+    parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+    # 1-2. owl arguments
+    parser.add_argument("--threshold", type=str, default="0.1,0.1")
+    parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
+    parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
+    parser.add_argument("--prompt", type=str, default="a can")
+    # change to arguments
+    args = parser.parse_args()
+
+
+    """declare locator object"""
+    locator = OBJECT_LOCATOR(args)
+
+
+    """initialize camera object"""
+    # 2. camera object declaration & define sl matrices
+    zed_cam = sl.Camera()
+
+    # 2-1. initial parameters
+    input_type = sl.InputType()
+    if len(sys.argv) >=2: # script arguments, first file name after command line arguments
+        input_type.set_from_svo_file(sys.argv[1]) # set type from arguments
+    
+    init = sl.InitParameters(input_t=input_type)
+    init.camera_resolution = sl.RESOLUTION.HD1080 # 720
+    init.depth_mode = sl.DEPTH_MODE.NEURAL # modes: PERFORMANCE, NEURAL_PLUS, NEURAL_LIGHT
+    init.coordinate_units = sl.UNIT/MILLIMETER
+
+    # 2-2. open camera
+    err = zed_cam.open(init)
+    if err != sl.ERROR_CODE.SUCCESS :
+        print(repr(err))
+        zed_cam.close()
+        exit(1)
+    # Set runtime parameters after opening the camera
+    runtime_param = sl.RuntimeParameters()
+
+    # 2-3. declare image size & sl matrices
+    image_size = zed_cam.get_camera_information().camera_configuration.resolution
+    image_size.width = image_size.width /2 # half resolution
+    image_size.height = image_size.height /2
+
+    # 2-4. Declare sl.Mat matrices
+    left_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    depth_mat = sl.Mat()
+    point_cloud_mat = sl.Mat()
+
+    """grab image, use methods to get 3D point"""
+    while True:
+        err = zed_cam.grab(runtime_param)
+
+        if err = sl.ERROR_CODE.SUCCESS:
+            # 3-1. retrieve data
+            zed_cam.retrieve_image(left_image_mat, sl.VIEW.LEFT, sl.MEM.CPU, image_size)
+            zed_cam.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
+            zed_cam.retrieve_measure(point_cloud_mat, sl.MEASURE.XYZRGBA)
+
+            # 3-2. get image and mask
+            image = left_image_mat.get_data()
+            pil_image = PIL.Image.fromarray(image).convert("RGB") #make PIL
+            mask, blended_image = locator.get_mask(pil_image)
+
+            # check mask existence
+            if mask is None:
+                # if none, show image and quit
+                cv2.imshow("blended image", blended_image)
+                cv2.waitKey(10)
+                
+            else:
+                # 3-3. get depth (both method and point cloud)
+                # 3-3-1. get 3d point from method
+                center_2d = locator.return_2d_center(mask)
+                depth = depth_mat.get_Value(center_2d[0], center_2d[1])
+                point_by_class = locator.return_3d_center(center_2d, depth)
+
+                # 3-3-2. get 3d point from point cloud
+                temp = point_cloud_mat.get_value(center_2d[0], center_2d[1])
+                point_by_cloud = (temp[0], temp[1], temp[2])
+
+                # 3-4. image show & get points
+                cv2.imshow("blended image", blended_image)
+                cv2.waitKey(10)
+                print("point by class:", point_by_class)
+                print("point by cloud:", point_by_cloud)
+
+    zed_cam.close()
+
+
+
+if __name__ == "__main__":
+    main()
