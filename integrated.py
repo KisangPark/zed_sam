@@ -157,7 +157,7 @@ def main():
     parser.add_argument("--threshold", type=str, default="0.1,0.1")
     parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
     parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
-    parser.add_argument("--prompt", type=str, default="a hand")
+    parser.add_argument("--prompt", type=str, default="a can")
     # change to arguments
     args = parser.parse_args()
 
