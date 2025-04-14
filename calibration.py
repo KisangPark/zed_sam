@@ -81,21 +81,6 @@ def calibration():
 
 
 
-def inverse_to_3D(mtx, center_2d, depth):
-    inv_mtx = np.linalg.inv(mtx)
-
-    # make 3 - dimensional pixel vector
-    center_2d.append(depth)
-    # check shape
-
-    # matmul
-    result = np.matmul(inv_mtx, center_2d)
-
-    return result
-
-
-
-
 def main():
     zed_cam = sl.Camera()
     """3. set configurations & runtime parameters, open camera, image size modification"""
@@ -148,6 +133,21 @@ def main():
             cv2.waitKey(20)
 
             time.sleep(5)
+
+
+
+
+def inverse_to_3D(mtx, center_2d, depth):
+    inv_mtx = np.linalg.inv(mtx)
+
+    # make 3 - dimensional pixel vector
+    center_2d.append(depth)
+    # check shape
+
+    # matmul
+    result = np.matmul(inv_mtx, center_2d)
+
+    return result
 
 
 if __name__ == "__main__":
