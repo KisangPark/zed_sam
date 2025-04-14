@@ -199,8 +199,8 @@ def main():
     #depth image matrix
     depth_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
     
-    depth_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
-    point_cloud_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    depth_mat = sl.Mat()
+    point_cloud_mat = sl.Mat()
 
     """grab image, use methods to get 3D point"""
     while True:
@@ -234,14 +234,11 @@ def main():
                 # 3-3-1. get 3d point from method
                 center_2d = locator.return_2d_center(mask)
                 depth = depth_mat.get_value(int(center_2d[0]), int(center_2d[1]))
-                print("Depth map shape:", depth_image.shape)
                 # list (SUCCESS, value) returned
 
                 # modify 2d center related to center pixel
                 modified_center = center_2d - np.array([mask.shape[1]/2, mask.shape[0]/2])
-                print(f"Center X Pixel: {mask.shape[1]/2} , Center Y Pixel: {mask.shape[0]/2}")
-                print("modified center:", modified_center)
-                print("mask shape:", mask.shape)
+                # print(f"Center X Pixel: {mask.shape[1]/2} , Center Y Pixel: {mask.shape[0]/2}")
                 point_by_class = locator.return_3d_center(modified_center, depth[1])
 
                 # 3-3-2. get 3d point from point cloud
