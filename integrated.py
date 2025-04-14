@@ -57,16 +57,18 @@ class OBJECT_LOCATOR():
 
 
     def get_mask(self, image):
+        #pil image
+        pil_image = PIL.Image.fromarray(image).convert("RGB")
         
         # text prompt encoding
         text_encodings = self.detector.encode_text(self.prompt)
         
         # set sam image & owl vit detection
-        self.sam_model.set_image(image)
+        self.sam_model.set_image(pil_image)
 
         output = self.detector.predict(
-                image=image, 
-                text = list_prompt, 
+                image=pil_image, 
+                text = self.prompt, 
                 text_encodings=text_encodings,
                 threshold=self.thresholds,
                 pad_square=False
@@ -82,7 +84,7 @@ class OBJECT_LOCATOR():
             print("no can detected, passing")
             return None, image
         
-        """draw bounding box, segmentation, return mask"""
+            """draw bounding box, segmentation, return mask"""
         else:    
             owl_box = output.boxes[0]
             bbox = np.array([int(x) for x in owl_box])
@@ -92,7 +94,8 @@ class OBJECT_LOCATOR():
             mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
 
             # make blended image
-            plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
+            plain_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            plain_image = cv2.cvtColor(plain_image, cv2.COLOR_BGR2RGB)
             mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
 
             color_mask = np.zeros_like(plain_image)
@@ -101,7 +104,7 @@ class OBJECT_LOCATOR():
             blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
             cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
 
-            return mask, blended
+            return mask_refined, blended
 
 
     def return_2d_center(self, mask):
@@ -114,9 +117,7 @@ class OBJECT_LOCATOR():
         # bitwise AND between mesh and mask
         if np.count_nonzero(mask):
             centroid_x = int(float(np.sum(cv2.bitwise_and(mesh_x, mesh_x, mask=mask))/np.count_nonzero(mask)))
-            print("x coordinate:", centroid_x)
             centroid_y = int(float(np.sum(cv2.bitwise_and(mesh_y, mesh_y, mask=mask)))/np.count_nonzero(mask))
-            print("y coordinate:", centroid_y)
             #by using bitwise AND, only true-masked pixels alive -> sum them all!
         else:
             centroid_x = mask.shape[1] /2
@@ -128,12 +129,14 @@ class OBJECT_LOCATOR():
 
     def return_3d_center(self, pixel_center, depth):
         # get 2d center, matrix to make 3d center value
-        pixel_center.append(depth)
+        center = pixel_center.tolist()
+        center.append(depth)
+        print(center)
 
         mtx = np.load("data/intrinsic_matrix.npy")
         inv_mtx = np.linalg.inv(mtx) #inverse matrix
 
-        return np.matmul(inv_mtx, pixel_center)
+        return np.matmul(inv_mtx, np.array(center))
 
 
 
@@ -154,7 +157,7 @@ def main():
     parser.add_argument("--threshold", type=str, default="0.1,0.1")
     parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
     parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
-    parser.add_argument("--prompt", type=str, default="a can")
+    parser.add_argument("--prompt", type=str, default="a hand")
     # change to arguments
     args = parser.parse_args()
 
@@ -173,9 +176,9 @@ def main():
         input_type.set_from_svo_file(sys.argv[1]) # set type from arguments
     
     init = sl.InitParameters(input_t=input_type)
-    init.camera_resolution = sl.RESOLUTION.HD1080 # 720
+    init.camera_resolution = sl.RESOLUTION.HD720 # 720
     init.depth_mode = sl.DEPTH_MODE.NEURAL # modes: PERFORMANCE, NEURAL_PLUS, NEURAL_LIGHT
-    init.coordinate_units = sl.UNIT/MILLIMETER
+    init.coordinate_units = sl.UNIT.MILLIMETER
 
     # 2-2. open camera
     err = zed_cam.open(init)
@@ -188,48 +191,68 @@ def main():
 
     # 2-3. declare image size & sl matrices
     image_size = zed_cam.get_camera_information().camera_configuration.resolution
-    image_size.width = image_size.width /2 # half resolution
-    image_size.height = image_size.height /2
+    # image_size.width = image_size.width /2 # half resolution
+    # image_size.height = image_size.height /2
 
     # 2-4. Declare sl.Mat matrices
     left_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
-    depth_mat = sl.Mat()
-    point_cloud_mat = sl.Mat()
+    #depth image matrix
+    depth_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    
+    depth_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    point_cloud_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
 
     """grab image, use methods to get 3D point"""
     while True:
         err = zed_cam.grab(runtime_param)
 
-        if err = sl.ERROR_CODE.SUCCESS:
+        if err == sl.ERROR_CODE.SUCCESS:
             # 3-1. retrieve data
             zed_cam.retrieve_image(left_image_mat, sl.VIEW.LEFT, sl.MEM.CPU, image_size)
             zed_cam.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
             zed_cam.retrieve_measure(point_cloud_mat, sl.MEASURE.XYZRGBA)
 
+            # depth image
+            zed_cam.retrieve_image(depth_image_mat, sl.VIEW.DEPTH, sl.MEM.CPU, image_size)
+
             # 3-2. get image and mask
             image = left_image_mat.get_data()
-            pil_image = PIL.Image.fromarray(image).convert("RGB") #make PIL
-            mask, blended_image = locator.get_mask(pil_image)
+            mask, blended_image = locator.get_mask(image)
+
+            # depth image
+            depth_image = depth_image_mat.get_data()
 
             # check mask existence
             if mask is None:
                 # if none, show image and quit
                 cv2.imshow("blended image", blended_image)
+                cv2.imshow("depth image", depth_image)
                 cv2.waitKey(10)
                 
             else:
                 # 3-3. get depth (both method and point cloud)
                 # 3-3-1. get 3d point from method
                 center_2d = locator.return_2d_center(mask)
-                depth = depth_mat.get_Value(center_2d[0], center_2d[1])
-                point_by_class = locator.return_3d_center(center_2d, depth)
+                depth = depth_mat.get_value(int(center_2d[0]), int(center_2d[1]))
+                print("Depth map shape:", depth_image.shape)
+                # list (SUCCESS, value) returned
+
+                # modify 2d center related to center pixel
+                modified_center = center_2d - np.array([mask.shape[1]/2, mask.shape[0]/2])
+                print(f"Center X Pixel: {mask.shape[1]/2} , Center Y Pixel: {mask.shape[0]/2}")
+                print("modified center:", modified_center)
+                print("mask shape:", mask.shape)
+                point_by_class = locator.return_3d_center(modified_center, depth[1])
 
                 # 3-3-2. get 3d point from point cloud
-                temp = point_cloud_mat.get_value(center_2d[0], center_2d[1])
-                point_by_cloud = (temp[0], temp[1], temp[2])
+                temp = point_cloud_mat.get_value(int(center_2d[0]), int(center_2d[1]))
+                # list (SUCCESS, value) returned
+                tmp = temp[1]
+                point_by_cloud = (tmp[0], tmp[1], tmp[2])
 
                 # 3-4. image show & get points
                 cv2.imshow("blended image", blended_image)
+                cv2.imshow("depth image", depth_image)
                 cv2.waitKey(10)
                 print("point by class:", point_by_class)
                 print("point by cloud:", point_by_cloud)
