@@ -1,122 +1,183 @@
 """
-flow
-1) 
-
-
-only intrinsic 
+Inegrated code
 """
 
-"""
-TODO
-    1) camera calibration, get intrinsic camera parameter
-    2) get z position, make 3D vector
-    3) matmul: inverse intrinsic & 3D vector
-    -> get 3D
-"""
-
-import time
-import cv2
-import numpy as np
-import os
-import glob
 import sys
+import numpy as np
+import argparse
+import matplotlib.pyplot as plot
 import PIL.Image
 
 import pyzed.sl as sl
+import cv2
+
+from nanoowl.owl_predictor import (
+    OwlPredictor
+)
+from nanosam.utils.predictor import Predictor
 
 
-
-def calibration():
-    # declare checkerboard info
-    img_shape = []
-
-    # size of checkerboard
-    CHECKERBOARD = (6,9) #inner intersections
-
-    #criteria for terminalization
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-
-    # 3D points save
-    points_3D = []
-    # 2D points save
-    points_2D = []
-
-    # make fundamental points (target?)
-    object_point = np.zeros((1, CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
-    object_point[0,:,:2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
-    object_point *= 20 #20mm for one checkerboard pixel
-
-    prev_img_shape = None
-
-    #get glob images
-    images = glob.glob('/home/kisangpark/lab_training/calibration/data/*.jpg')
-
-    print(images)
-    for file in images:
-        img = cv2.imread(file)
-        # grayscale (efficiency)
-        gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+# bounding box function
+def bbox2points(bbox):
+    points = np.array([
+        [bbox[0], bbox[1]],
+        [bbox[2], bbox[3]]
+    ])
+    point_labels = np.array([2, 3])
+    return points, point_labels
 
 
-        # finding corners
-        ret, corners = cv2.findChessboardCorners(gray,
-                                                CHECKERBOARD,
-                                                cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_FAST_CHECK + cv2.CALIB_CB_NORMALIZE_IMAGE)
-        # image, patternsize, falgs
-        #ret = true if number of corners are correct / corners return the list of corner coordinates                
+class OBJECT_LOCATOR():
+
+    def __init__(self, args): #get arguments for models, get text prompt
         
-
-        if ret == True:
-            points_3D.append(object_point)
-
-            # precision
-            corners2 = cv2.cornerSubPix(gray, corners, (11,11),(-1,-1), criteria)
-            # image, corners, window size, zerozone, criteria
-            img_shape = gray.shape[::-1]
-            print (img_shape)
-
-            points_2D.append(corners2) # 2D points obtained by checkerboard image
-            img = cv2.drawChessboardCorners(img, CHECKERBOARD, corners2, ret)
-        cv2.imshow('img',img)
-        cv2.waitKey(2000)
-    cv2.destroyAllWindows()
-
-    # calibration, return matrices
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(points_3D, points_2D, img_shape, None, None)
-    print("intrinsic parameter:", mtx)
-
-    return mtx
-
-
-
-def inverse_to_3D(mtx, center_2d, depth):
-    inv_mtx = np.linalg.inv(mtx)
-
-    # make 3 - dimensional pixel vector
-    center_2d.append(depth)
-    # check shape
-
-    # matmul
-    result = np.matmul(inv_mtx, center_2d)
-
-    return result
+        """arguments parsing & storing"""
+        # threshold parse
+        self.thresholds = args.threshold.strip("][()")
+        self.thresholds = self.thresholds.split(',')
+        if len(self.thresholds) == 1:
+            self.thresholds = float(self.thresholds[0])
+        else:
+            self.thresholds = [float(x) for x in self.thresholds]
+        
+        # prompt parsing: text to list of texts
+        self.prompt = args.prompt.strip("][()")
+        self.prompt = self.prompt.split(',') # done
+        
+        """define models: OWL ViT, SAM"""
+        self.detector = OwlPredictor(
+            args.model,
+            image_encoder_engine=args.image_encoder_engine
+        )
+        
+        self.sam_model = Predictor(
+            args.image_encoder,
+            args.mask_decoder
+        ) # in sam example code, it uses parser arguments but this is also possible -> not available..
 
 
+    def get_mask(self, image):
+        
+        # text prompt encoding
+        text_encodings = self.detector.encode_text(self.prompt)
+        
+        # set sam image & owl vit detection
+        self.sam_model.set_image(image)
 
+        output = self.detector.predict(
+                image=image, 
+                text = list_prompt, 
+                text_encodings=text_encodings,
+                threshold=self.thresholds,
+                pad_square=False
+            )
+
+        """detect single can"""
+        N = len(output.labels)
+        if N>1:
+            print("Multiple cans detected, passing...")
+            return None, image
+
+        elif N == 0:
+            print("no can detected, passing")
+            return None, image
+        
+        """draw bounding box, segmentation, return mask"""
+        else:    
+            owl_box = output.boxes[0]
+            bbox = np.array([int(x) for x in owl_box])
+
+            points, point_labels = bbox2points(bbox)
+            mask, _, _ = self.sam_model.predict(points, point_labels)
+            mask_refined = (mask[0, 0] > 0).detach().cpu().numpy() #already numpy array
+
+            # make blended image
+            plain_image = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
+            mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
+
+            color_mask = np.zeros_like(plain_image)
+            color_mask[mask_color > 0] = (0, 255, 255)  # Yellow color
+
+            blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
+            cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
+
+            return mask, blended
+
+
+    def return_2d_center(self, mask):
+        # boolean to int
+        mask = mask.astype("uint8")
+
+        #mesh matrix: represents the coordinate of each pixel
+        mesh_y, mesh_x = np.mgrid[0:mask.shape[0]:1, 0:mask.shape[1]:1]
+
+        # bitwise AND between mesh and mask
+        if np.count_nonzero(mask):
+            centroid_x = int(float(np.sum(cv2.bitwise_and(mesh_x, mesh_x, mask=mask))/np.count_nonzero(mask)))
+            print("x coordinate:", centroid_x)
+            centroid_y = int(float(np.sum(cv2.bitwise_and(mesh_y, mesh_y, mask=mask)))/np.count_nonzero(mask))
+            print("y coordinate:", centroid_y)
+            #by using bitwise AND, only true-masked pixels alive -> sum them all!
+        else:
+            centroid_x = mask.shape[1] /2
+            centroid_y = mask.shape[0] /2
+            # if no mask, center of picture is COM
+
+        return np.array([centroid_x, centroid_y]) #return as numpy array
+
+
+    def return_3d_center(self, pixel_center, depth):
+        # get 2d center, matrix to make 3d center value
+        pixel_center.append(depth)
+
+        mtx = np.load("data/intrinsic_matrix.npy")
+        inv_mtx = np.linalg.inv(mtx) #inverse matrix
+
+        return np.matmul(inv_mtx, pixel_center)
+
+
+
+
+"""
+main function
+"""
 
 def main():
-    """3. set configurations & runtime parameters, open camera, image size modification"""
+    """initialize parser, camera object"""
+
+    # 1. parser declaration
+    parser = argparse.ArgumentParser()
+    # 1-1. sam arguments
+    parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
+    parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+    # 1-2. owl arguments
+    parser.add_argument("--threshold", type=str, default="0.1,0.1")
+    parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
+    parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
+    parser.add_argument("--prompt", type=str, default="a can")
+    # change to arguments
+    args = parser.parse_args()
+
+
+    """declare locator object"""
+    locator = OBJECT_LOCATOR(args)
+
+
+    """initialize camera object"""
+    # 2. camera object declaration & define sl matrices
+    zed_cam = sl.Camera()
+
+    # 2-1. initial parameters
     input_type = sl.InputType()
-    if len(sys.argv) >= 2 :
-        # sys.argv: script arguments
-        # 0: script file name
-        # after this: arguments from command line
-        input_type.set_from_svo_file(sys.argv[1])
+    if len(sys.argv) >=2: # script arguments, first file name after command line arguments
+        input_type.set_from_svo_file(sys.argv[1]) # set type from arguments
+    
     init = sl.InitParameters(input_t=input_type)
-    init.camera_resolution = sl.RESOLUTION.HD1080
-    init.depth_mode = sl.DEPTH_MODE.NEURAL# Mode: performance, neural, etc
-    init.coordinate_units = sl.UNIT.MILLIMETER
-    # Open the camera
+    init.camera_resolution = sl.RESOLUTION.HD1080 # 720
+    init.depth_mode = sl.DEPTH_MODE.NEURAL # modes: PERFORMANCE, NEURAL_PLUS, NEURAL_LIGHT
+    init.coordinate_units = sl.UNIT/MILLIMETER
+
+    # 2-2. open camera
     err = zed_cam.open(init)
     if err != sl.ERROR_CODE.SUCCESS :
         print(repr(err))
@@ -125,45 +186,57 @@ def main():
     # Set runtime parameters after opening the camera
     runtime_param = sl.RuntimeParameters()
 
-    #image size get & modification
+    # 2-3. declare image size & sl matrices
     image_size = zed_cam.get_camera_information().camera_configuration.resolution
-    image_size.width = image_size.width /2
+    image_size.width = image_size.width /2 # half resolution
     image_size.height = image_size.height /2
 
-    # Declare sl.Mat matrices
+    # 2-4. Declare sl.Mat matrices
     left_image_mat = sl.Mat(image_size.width, image_size.height, sl.MAT_TYPE.U8_C4)
+    depth_mat = sl.Mat()
+    point_cloud_mat = sl.Mat()
 
-    # 10 images of checkerboard -> capture 10 times
-    for i in len():
+    """grab image, use methods to get 3D point"""
+    while True:
         err = zed_cam.grab(runtime_param)
 
-        if err == sl.ERROR_CODE.SUCCESS:
-            # a. retrieve left and depth image!
+        if err = sl.ERROR_CODE.SUCCESS:
+            # 3-1. retrieve data
             zed_cam.retrieve_image(left_image_mat, sl.VIEW.LEFT, sl.MEM.CPU, image_size)
+            zed_cam.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
+            zed_cam.retrieve_measure(point_cloud_mat, sl.MEASURE.XYZRGBA)
 
-            # b. get image matrix from retrieved data
-            left_image = left_image_mat.get_data()
-            
-            # visualize, save --> 5 second
-            cv2.imshow("left image", left_image)
-            path = os.path.join("calibration", i, ".jpg")
-            cv2.imwrite(path, left_image)
+            # 3-2. get image and mask
+            image = left_image_mat.get_data()
+            pil_image = PIL.Image.fromarray(image).convert("RGB") #make PIL
+            mask, blended_image = locator.get_mask(pil_image)
 
-            time.sleep(5)
+            # check mask existence
+            if mask is None:
+                # if none, show image and quit
+                cv2.imshow("blended image", blended_image)
+                cv2.waitKey(10)
+                
+            else:
+                # 3-3. get depth (both method and point cloud)
+                # 3-3-1. get 3d point from method
+                center_2d = locator.return_2d_center(mask)
+                depth = depth_mat.get_Value(center_2d[0], center_2d[1])
+                point_by_class = locator.return_3d_center(center_2d, depth)
+
+                # 3-3-2. get 3d point from point cloud
+                temp = point_cloud_mat.get_value(center_2d[0], center_2d[1])
+                point_by_cloud = (temp[0], temp[1], temp[2])
+
+                # 3-4. image show & get points
+                cv2.imshow("blended image", blended_image)
+                cv2.waitKey(10)
+                print("point by class:", point_by_class)
+                print("point by cloud:", point_by_cloud)
+
+    zed_cam.close()
 
 
-    mtx = calibration()
 
-    # get center 2 dimensional coordinate
-    # mask
-    # make upper as functions, import to main code
-
-    # get depth -> depth api code
-    depth_map = sl.Mat()
-    zed_cam.retrieve_measure(depth_map, sl.MEASURE.DEPTH)
-
-    depth = depth_map.get_vallue(center_2d[0], center_2d[1])
-
-    # get 3D coordinate vector
-    result = inverse_to_3D(mtx, center_2d, depth)
-
+if __name__ == "__main__":
+    main()
