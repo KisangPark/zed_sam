@@ -247,6 +247,16 @@ def main():
                 tmp = temp[1]
                 point_by_cloud = (tmp[0], tmp[1], tmp[2])
 
+                # modify depth image with center pixel
+                mask = mask.astype("uint8") # integer mask
+                depth_image = cv2.bitwise_and(depth_image, depth_image, mask=mask)
+
+                cv2.cvtColor(depth_image, cv2.COLOR_RGBA2RGB)
+                cv2.circle(depth_image, (int(center_2d[0]), int(center_2d[1])), 1, (0, 255, 0), 10, cv2.LINE_AA)
+                cv2.putText(depth_image, f"{tmp[0]} \n {tmp[1]} \n {tmp[2]}", (int(center_2d[0]), int(center_2d[1])), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 3, cv2.LINE_AA)
+
+
+
                 # 3-4. image show & get points
                 cv2.imshow("blended image", blended_image)
                 cv2.imshow("depth image", depth_image)
