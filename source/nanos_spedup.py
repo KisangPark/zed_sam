@@ -30,15 +30,15 @@ def main():
     # 1st. define parser
     parser = argparse.ArgumentParser()
     # sam arguments
-    parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
-    parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+    parser.add_argument("--image_encoder", type=str, default="/home/rilab-orin-1/workspace/zed_sam/engines/resnet18_image_encoder.engine")
+    parser.add_argument("--mask_decoder", type=str, default="/home/rilab-orin-1/workspace/zed_sam/engines/mobile_sam_mask_decoder.engine")
     #owl arguments
     parser.add_argument("--threshold", type=str, default="0.1,0.1")
     parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
-    parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
+    parser.add_argument("--image_encoder_engine", type=str, default="/home/rilab-orin-1/workspace/zed_sam/engines/owl_image_encoder_patch32.engine")
     args = parser.parse_args()
     # prompt
-    list_prompt = ['a can']
+    list_prompt = ['a hand']
     #threshold parse
     thresholds = args.threshold.strip("][()")
     thresholds = thresholds.split(',')
@@ -133,7 +133,7 @@ def main():
             N = len(output.labels)
             if N>1:
                 print("Multiple cans detected, exiting...")
-                break #if N>1, multiple cans
+                pass #break #if N>1, multiple cans
 
             elif N == 0:
                 print("no can detected")
@@ -166,7 +166,9 @@ def main():
                 depth_transposed = np.transpose(depth_image, (2, 0, 1))
                 print("dimensions transposed:", depth_transposed.shape)
 
-                cv2.imshow('result', blended) #blended
+                cv2.imshow('SAM segmentation', blended)
+                cv2.imshow('Left camera image', left_image)
+                cv2.imshow('Depth image', depth_image)
                 #transposed matrix not supported in cv2
                 cv2.waitKey(10)
 

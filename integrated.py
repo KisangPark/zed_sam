@@ -78,11 +78,11 @@ class OBJECT_LOCATOR():
         N = len(output.labels)
         if N>1:
             print("Multiple cans detected, passing...")
-            return None, image
+            return None, image, np.zeros(4)
 
         elif N == 0:
             print("no can detected, passing")
-            return None, image
+            return None, image, np.zeros(4)
         
             """draw bounding box, segmentation, return mask"""
         else:    
@@ -99,12 +99,12 @@ class OBJECT_LOCATOR():
             mask_color = (mask_refined * 255).astype(np.uint8) if mask_refined.max() <= 1 else binary_mask
 
             color_mask = np.zeros_like(plain_image)
-            color_mask[mask_color > 0] = (0, 255, 255)  # Yellow color
+            color_mask[mask_color > 0] = (255, 0, 0)  # blue color
 
             blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
             cv2.rectangle(blended, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 0, 255), 2)
 
-            return mask_refined, blended
+            return mask_refined, blended, bbox
 
 
     def return_2d_center(self, mask):
@@ -217,13 +217,22 @@ def main():
 
             # 3-2. get image and mask
             image = left_image_mat.get_data()
-            mask, blended_image = locator.get_mask(image)
+            mask, blended_image, bbox = locator.get_mask(image)
+            print(bbox)
 
             # depth image
             depth_image = depth_image_mat.get_data()
 
             # check mask existence
             if mask is None:
+
+                # draw xyz coordinate
+                cv2.cvtColor(depth_image, cv2.COLOR_RGBA2RGB)
+                cv2.line(depth_image, (30,30), (130,30), (0, 0, 200), 4, cv2.LINE_4)
+                cv2.putText(depth_image, "x", (130,43), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 200), 2, cv2.LINE_4)
+                cv2.line(depth_image, (30,30), (30,130), (0, 200, 0), 3, cv2.LINE_4)
+                cv2.putText(depth_image, "y", (25, 160), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 200, 0), 2, cv2.LINE_4)
+
                 # if none, show image and quit
                 cv2.imshow("blended image", blended_image)
                 cv2.imshow("depth image", depth_image)
@@ -250,11 +259,20 @@ def main():
                 # modify depth image with center pixel
                 mask = mask.astype("uint8") # integer mask
                 depth_image = cv2.bitwise_and(depth_image, depth_image, mask=mask)
-
                 cv2.cvtColor(depth_image, cv2.COLOR_RGBA2RGB)
-                cv2.circle(depth_image, (int(center_2d[0]), int(center_2d[1])), 1, (0, 255, 0), 10, cv2.LINE_AA)
-                cv2.putText(depth_image, f"{tmp[0]} \n {tmp[1]} \n {tmp[2]}", (int(center_2d[0]), int(center_2d[1])), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 3, cv2.LINE_AA)
+                cv2.circle(depth_image, (int(center_2d[0]), int(center_2d[1])), 1, (0, 215, 255), 10, cv2.LINE_AA)
 
+                # text position on bounding box
+                cv2.putText(depth_image, f"x: {round(tmp[0],3)}", (int(bbox[2]), int(bbox[1])+20), cv2.FONT_HERSHEY_PLAIN, 2, (0, 215, 255), 3, cv2.LINE_AA)
+                cv2.putText(depth_image, f"y: {round(tmp[1],3)}", (int(bbox[2]), int(bbox[1])+50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 215, 255), 3, cv2.LINE_AA)
+                cv2.putText(depth_image, f"z: {round(tmp[2],3)}", (int(bbox[2]), int(bbox[1])+80), cv2.FONT_HERSHEY_PLAIN, 2, (0, 215, 255), 3, cv2.LINE_AA)
+                
+                # draw xyz coordinate
+                cv2.cvtColor(depth_image, cv2.COLOR_RGBA2RGB)
+                cv2.line(depth_image, (30,30), (130,30), (0, 0, 200), 4, cv2.LINE_4)
+                cv2.putText(depth_image, "x", (130,43), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 200), 2, cv2.LINE_4)
+                cv2.line(depth_image, (30,30), (30,130), (0, 200, 0), 3, cv2.LINE_4)
+                cv2.putText(depth_image, "y", (25, 160), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 200, 0), 2, cv2.LINE_4)
 
 
                 # 3-4. image show & get points

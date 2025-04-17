@@ -23,8 +23,8 @@ import time
 
 """ 1. define camera & model / parser """
 parser = argparse.ArgumentParser()
-parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
-parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+parser.add_argument("--image_encoder", type=str, default="/home/rilab-orin-1/workspace/zed_sam/engines/resnet18_image_encoder.engine")
+parser.add_argument("--mask_decoder", type=str, default="/home/rilab-orin-1/workspace/zed_sam/engines/mobile_sam_mask_decoder.engine")
 args = parser.parse_args()
 
 sam_model = Predictor(
@@ -115,7 +115,9 @@ def main():
             blended = cv2.addWeighted(plain_image, 0.7, color_mask, 0.3, 0)
             cv2.rectangle(blended, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 0, 255), 2)
 
-            cv2.imshow('result', blended)
+            cv2.imshow('SAM segmentation', blended)
+            cv2.imshow('Left camera image', left_image)
+            cv2.imshow('Depth image', depth_image)
             cv2.waitKey(10)
 
             # #plot with matplotlib
