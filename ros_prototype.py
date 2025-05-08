@@ -26,12 +26,13 @@ import PIL.Image as pil_image
 import cv2
 from cv_bridge import CvBridge
 
-from nanoowl.owl_predictor import OwlPredictor
-from nanosam.utils.predictor import Predictor
+import nanoowl.owl_predictor.OwlPredictor as owlpredictor
+import nanosam.utils.predictor.Predictor as sampredictor
 
 import rclpy
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import Image, PointCloud2
+import sensor_msgs.point_cloud2 as pc2
 from rclpy.qos import QoSProfile
 
 
@@ -67,9 +68,12 @@ class POSE_RETURNER(node):
         # pose publisher
         self.publisher = self.create_publisher(
             Pose,
-            "/obj/pose",
+            "/user/obj_pose",
             qos_profile
         )
+
+        # timer for publish
+        self.timer = self.create_timer(10, self.pub_pose)
 
 
 
@@ -88,12 +92,12 @@ class POSE_RETURNER(node):
 
 
         """define models: OWL ViT, SAM"""
-        self.detector = OwlPredictor(
+        self.detector = owlpredictor(
             args.model,
             image_encoder_engine=args.image_encoder_engine
         )
         
-        self.sam_model = Predictor(
+        self.sam_model = sampredictor(
             args.image_encoder,
             args.mask_decoder
         ) # in sam example code, it uses parser arguments but this is also possible -> not available..
@@ -165,42 +169,34 @@ class POSE_RETURNER(node):
 
 
 
-    def cloud_callback(self, msg):
-        # calculate 3d position using ROS2 pointcloud topic
+    def cloud_callback(self, msg): # calculate 3d position using ROS2 pointcloud topic
 
         # check 2d position validity
         if self.position_2d is not None:
 
-            # calculate 3d position
+            if msg.height != 1: # shape received (2d data)
+                pass
+            else: # insert proper value
+                msg.height = 1080
+                msg.width = 1920
+            
+            # calculate 3d position with pcl
+            point = pc2.read_points(
+                msg,
+                field_names=("x", "y", "z"),
+                skip_nans=True,
+                uvs=[self.position_2d[0],self.position_2d[1]]
+                )
+            # returns yielded points (uv given, 1 value returned)
 
-            if msg.height != 1:
-                # when 2d image -> get data by position
+            print(point) # check
 
-                start_y = self.position_2d[1]
-                start_x = msg.point_step * self.position_2d[0]
-
-                # fetch & decode value
-                # point field: x, y, z, i, data type
-                # assume: point step 16 (byte), data type float 32 (4 byte)
-                # fetch 16 data to decode
-
-                self.position_3d = []
-
-                for i in range(4): # i from 0 to 3
-                    temp_blob = []
-                    for j in range(4):
-                        byte_data = msg.data[start_y][start_x + 4*i + j]
-                        temp_blob.append(byte_data)
-                    # flatten temp_blob, make it binary, float change
-                    flattened
-                    self.position_3d.append(flattened)
-                
-                # 3d position (float) saved to self.position_3d
-
+            self.position_3d = np.array(point)
 
 
         else: # if 2d position not valid (None) -> 3d position None
-            self.position_3d = []
+            self.get_logger().info("position invalid")
+            self.position_3d = None
 
         
     def pub_pose(self):
@@ -210,8 +206,8 @@ class POSE_RETURNER(node):
 
         if self.position_3d is not None: # if position exists, publish pose
             pose.position.x = self.position_3d[0]
-            pose.position.y = self.position_3d[0]
-            pose.position.z = self.position_3d[0]
+            pose.position.y = self.position_3d[1]
+            pose.position.z = self.position_3d[2]
 
         else: # if not valid -> inf?
             inf_num = float('inf')
@@ -237,3 +233,29 @@ def bbox2points(bbox):
     point_labels = np.array([2, 3])
     return points, point_labels
 
+
+def main():
+
+    # arguments declaration
+    parser = argparse.ArgumentParser()
+    # 1-1. sam arguments
+    parser.add_argument("--image_encoder", type=str, default="engines/resnet18_image_encoder.engine")
+    parser.add_argument("--mask_decoder", type=str, default="engines/mobile_sam_mask_decoder.engine")
+    # 1-2. owl arguments
+    parser.add_argument("--threshold", type=str, default="0.1,0.1")
+    parser.add_argument("--model", type=str, default="google/owlvit-base-patch32")
+    parser.add_argument("--image_encoder_engine", type=str, default="engines/owl_image_encoder_patch32.engine")
+    parser.add_argument("--prompt", type=str, default="a can")
+    # change to arguments
+    arguments = parser.parse_args()
+
+    # rclpy part
+    rclpy.init(args=None)
+    node = POSE_RETURNER(arguments)
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
