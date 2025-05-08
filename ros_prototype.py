@@ -199,18 +199,30 @@ class POSE_RETURNER(node):
 
 
 
-        else: # if 2d position not valid -> 3d position None
-            a
+        else: # if 2d position not valid (None) -> 3d position None
+            self.position_3d = []
 
         
     def pub_pose(self):
-        # publish self.position_3d
-        pose = Pose()
-        pose.position.x = self.position_3d[0]
-        pose.position.y = self.position_3d[0]
-        pose.position.z = self.position_3d[0]
 
-        pose.orientation = naive value
+        # define ros2 topic to publish
+        pose = Pose()
+
+        if self.position_3d is not None: # if position exists, publish pose
+            pose.position.x = self.position_3d[0]
+            pose.position.y = self.position_3d[0]
+            pose.position.z = self.position_3d[0]
+
+        else: # if not valid -> inf?
+            inf_num = float('inf')
+            pose.position.x = inf_num
+            pose.position.y = inf_num
+            pose.position.z = inf_num
+        
+        pose.orientation.x = 0
+        pose.orientation.y = 0
+        pose.orientation.z = 0
+        pose.orientation.w = 30 # correct value
 
         self.publisher.publish(pose)
 
